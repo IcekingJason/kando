@@ -43,6 +43,9 @@ export const ACHIEVEMENT_STATS_SCHEMA_V1 = z.object({
   /** The total number of gamepad selections. */
   gamepadSelections: z.number().default(0),
 
+  /** The total number of selections made with a wheel device such as the Surface Dial. */
+  dialSelections: z.number().default(0),
+
   /** The number of selections at depth 1 faster than 1000ms. */
   selectionsSpeed1Depth1: z.number().default(0),
 

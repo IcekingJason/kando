@@ -6,12 +6,15 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 #ifndef NATIVE_HPP
 #define NATIVE_HPP
 
 #include <napi.h>
+
+#include <memory>
 
 /**
  * This class allows moving the mouse pointer, simulating key presses, and getting the
@@ -20,6 +23,7 @@
 class Native : public Napi::Addon<Native> {
  public:
   Native(Napi::Env env, Napi::Object exports);
+  virtual ~Native();
 
  private:
   /**
@@ -89,6 +93,37 @@ class Native : public Napi::Addon<Native> {
    * contain no arguments.
    */
   Napi::Value listInstalledApplications(const Napi::CallbackInfo& info);
+
+  /**
+   * This function is called when the startDialCapture function is called from JavaScript.
+   * It expects a buffer which contains the native window handle of the window to bind the
+   * capture to, the rotation resolution in degrees, a boolean which indicates whether the
+   * wheel device should provide haptic feedback, and a callback which is called for each
+   * event of the wheel device. It returns true if the capture was started successfully.
+   *
+   * @param info The arguments passed to the startDialCapture function. It should contain
+   *             a buffer, a number, a boolean and a function.
+   */
+  Napi::Value startDialCapture(const Napi::CallbackInfo& info);
+
+  /**
+   * This function is called when the stopDialCapture function is called from JavaScript.
+   * It stops the capture which was started by startDialCapture and restores the default
+   * behavior of the wheel device. It expects no arguments.
+   *
+   * @param info The arguments passed to the stopDialCapture function. It should contain
+   *             no arguments.
+   */
+  void stopDialCapture(const Napi::CallbackInfo& info);
+
+  /**
+   * This struct contains the state required to capture input from a wheel device such as
+   * the Surface Dial. It is defined in Native.cpp.
+   */
+  struct DialCapture;
+
+  /** This is used to capture input from a wheel device such as the Surface Dial. */
+  std::unique_ptr<DialCapture> mDialCapture;
 };
 
 #endif // NATIVE_HPP

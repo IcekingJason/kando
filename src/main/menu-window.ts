@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 import os from 'node:os';
@@ -30,6 +31,12 @@ import { KandoApp } from './app';
 
 declare const MENU_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 declare const MENU_WINDOW_WEBPACK_ENTRY: string;
+
+/**
+ * The rotation resolution for wheel devices such as the Surface Dial in degrees. This is
+ * the minimum rotation required to hover the next menu item.
+ */
+const DIAL_ROTATION_RESOLUTION = 15;
 
 /**
  * This is the window which contains the pie menu. It is a transparent window which covers
@@ -387,6 +394,13 @@ export class MenuWindow extends BrowserWindow {
 
     super.show();
 
+    // If the window is focusable, we can capture input from wheel devices such as the
+    // Surface Dial while the menu is open. The capture is bound to this window, so events
+    // are only received while the menu window is the active window.
+    if (this.isFocusable()) {
+      this.startDialCapture();
+    }
+
     // There seems to be an issue with GNOME Shell 44.1 where the window does not
     // get focus when it is shown. This is a workaround for that issue.
     setTimeout(() => {
@@ -394,6 +408,33 @@ export class MenuWindow extends BrowserWindow {
     }, 100);
 
     this.visible = true;
+  }
+
+  /**
+   * This starts the capture of input from wheel devices such as the Surface Dial. The
+   * events are forwarded to the menu renderer. On backends which do not support wheel
+   * devices, this does nothing.
+   */
+  private startDialCapture() {
+    this.kando
+      .getBackend()
+      .startDialCapture(
+        this.getNativeWindowHandle(),
+        DIAL_ROTATION_RESOLUTION,
+        true,
+        (event) => this.webContents.send('menu-window.dial-event', event)
+      )
+      .then((started) => {
+        if (started) {
+          console.log('Started capturing wheel device input.');
+        }
+      })
+      .catch((error) => {
+        console.error(
+          'Failed to start capturing wheel device input:',
+          error instanceof Error ? error.message : error
+        );
+      });
   }
 
   /**
@@ -493,6 +534,10 @@ export class MenuWindow extends BrowserWindow {
     if (this.hideTimeout) {
       clearTimeout(this.hideTimeout);
     }
+
+    // Stop capturing wheel device input. This will also restore the default behavior of
+    // the device.
+    await this.kando.getBackend().stopDialCapture();
 
     // If we inhibited the menu's shortcut, we restore it now.
     if (this.shortcutInhibitionID > 0) {

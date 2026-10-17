@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 import { EventEmitter } from 'events';
@@ -18,6 +19,7 @@ import {
   Vec2,
   SelectionSource,
   MenuInteractionType,
+  DialEvent,
   TypedEventEmitter,
 } from '../common';
 import {
@@ -123,6 +125,19 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
    * an input pointer is moved.
    */
   private latestInput: InputState = null;
+
+  /**
+   * This is set to true once a long press of a wheel device such as the Surface Dial was
+   * handled. In this case, the following release event should not select the hovered
+   * item.
+   */
+  private dialHoldTriggered = false;
+
+  /**
+   * This is set to true once the menu was switched to a fixed position at the center of
+   * the screen because it is operated with a wheel device such as the Surface Dial.
+   */
+  private dialModeActive = false;
 
   /** This timeout is used to clear the menu div after the fade-out animation. */
   private hideTimeout: NodeJS.Timeout;
@@ -273,6 +288,51 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
     }
   }
 
+  /**
+   * This will be called when a wheel device such as the Surface Dial emits an event.
+   * Rotating the device will hover the next or previous menu item, pressing the device
+   * will select the hovered item and pressing and holding the device will select the
+   * parent item.
+   *
+   * @param event The event to handle.
+   */
+  public onDialEvent(event: DialEvent) {
+    if (this.container.classList.contains('hidden') || !this.centerItem) {
+      return;
+    }
+
+    // When the menu is operated with a wheel device such as the Surface Dial, we switch
+    // it to a fixed position at the center of the screen.
+    if (!this.dialModeActive) {
+      this.activateDialMode();
+    }
+
+    if (event.type === 'rotate') {
+      this.stepHoveredItem(event.deltaDegrees > 0 ? 1 : -1);
+    } else if (event.type === 'press') {
+      this.dialHoldTriggered = false;
+      this.latestInput.button = ButtonState.eClicked;
+      this.redraw();
+    } else if (event.type === 'hold') {
+      // A long press selects the parent item. If we are already at the root item, this
+      // closes the menu. Note that the ButtonHolding event may be emitted multiple times
+      // while the device is held down.
+      if (!this.dialHoldTriggered) {
+        this.dialHoldTriggered = true;
+        this.selectParent();
+      }
+    } else if (event.type === 'release') {
+      if (this.dialHoldTriggered) {
+        // The long press was already handled, so we only reset the visual button state.
+        this.dialHoldTriggered = false;
+        this.latestInput.button = ButtonState.eReleased;
+        this.redraw();
+      } else {
+        this.selectHoveredItem(SelectionSource.eDial);
+      }
+    }
+  }
+
   /** Removes all DOM elements from the menu and resets the root menu item. */
   public clear() {
     this.container.className = 'hidden';
@@ -284,6 +344,8 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
     this.hoveredItem = null;
     this.draggedItem = null;
     this.centerItem = null;
+    this.dialHoldTriggered = false;
+    this.dialModeActive = false;
     clearTimeout(this.hideTimeout);
     clearTimeout(this.initialPositionTimeout);
     this.hideTimeout = null;
@@ -566,27 +628,7 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
             this.latestInput.button = ButtonState.eClicked;
             this.redraw();
           } else {
-            if (this.hoveredItem) {
-              if (this.hoveredItem === this.centerItem) {
-                this.emitItemInteractionEvent(
-                  MenuInteractionType.eActivateMenu,
-                  this.hoveredItem.renderData.path
-                );
-              } else if (this.hoveredItem === this.centerItem.renderData.parent) {
-                this.selectParent();
-              } else if (this.hoveredItem.type === 'submenu') {
-                this.emitItemInteractionEvent(
-                  MenuInteractionType.eOpenSubmenu,
-                  this.hoveredItem.renderData.path
-                );
-                this.openSubmenu(this.hoveredItem);
-              } else {
-                this.emitSelectionEvent(this.hoveredItem, SelectionSource.eKeyboard);
-              }
-
-              this.latestInput.button = ButtonState.eReleased;
-              this.redraw();
-            }
+            this.selectHoveredItem(SelectionSource.eKeyboard);
             return;
           }
         }
@@ -853,6 +895,114 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
     };
 
     this.redraw();
+  }
+
+  /**
+   * This selects the currently hovered item. Depending on the type of the hovered item,
+   * this will either select the item, open a submenu or select the parent item.
+   *
+   * @param source The source which was used to make the selection. This is used for
+   *   achievement tracking.
+   */
+  private selectHoveredItem(source: SelectionSource) {
+    if (!this.hoveredItem) {
+      return;
+    }
+
+    if (this.hoveredItem === this.centerItem) {
+      this.emitItemInteractionEvent(
+        MenuInteractionType.eActivateMenu,
+        this.hoveredItem.renderData.path
+      );
+    } else if (this.hoveredItem === this.centerItem.renderData.parent) {
+      this.selectParent();
+    } else if (this.hoveredItem.type === 'submenu') {
+      this.emitItemInteractionEvent(
+        MenuInteractionType.eOpenSubmenu,
+        this.hoveredItem.renderData.path
+      );
+      this.openSubmenu(this.hoveredItem);
+    } else {
+      this.emitSelectionEvent(this.hoveredItem, source);
+    }
+
+    this.latestInput.button = ButtonState.eReleased;
+    this.redraw();
+  }
+
+  /**
+   * This switches the menu to a fixed position at the center of the screen and enables
+   * the anchored mode. This is used when the menu is operated with a wheel device such as
+   * the Surface Dial because such devices cannot move the mouse pointer.
+   */
+  private activateDialMode() {
+    this.dialModeActive = true;
+
+    this.showMenuOptions = {
+      ...this.showMenuOptions,
+      useFixedPosition: true,
+      fixedMenuPosition: { x: 0.5, y: 0.5 },
+      anchoredMode: true,
+    };
+
+    // Move the root item so that the center item is at the new position.
+    const offset = math.subtract(
+      this.getInitialMenuPosition(),
+      this.getCenterItemPosition()
+    );
+    this.root.renderData.position = math.add(this.root.renderData.position, offset);
+
+    // The latest input state is still relative to the previous position of the menu. We
+    // re-anchor it to the new position so that the hovered item stays hovered.
+    if (this.hoveredItem && this.hoveredItem !== this.centerItem) {
+      const angle =
+        this.hoveredItem === this.centerItem.renderData.parent
+          ? (this.centerItem.renderData.computedAngle + 180) % 360
+          : this.hoveredItem.renderData.computedAngle;
+
+      this.hoverAngle(angle);
+    } else {
+      this.latestInput = {
+        ...this.latestInput,
+        absolutePosition: this.getCenterItemPosition(),
+        relativePosition: { x: 0, y: 0 },
+        distance: 0,
+      };
+
+      this.redraw();
+    }
+  }
+
+  /**
+   * This will hover the next or previous child item of the currently centered menu item.
+   * It is used to navigate the menu with a wheel device such as the Surface Dial.
+   *
+   * @param direction 1 to hover the next item clockwise, -1 for counter-clockwise.
+   */
+  private stepHoveredItem(direction: 1 | -1) {
+    if (this.centerItem.type !== 'submenu' && this.centerItem.type !== 'root') {
+      return;
+    }
+
+    // Collect all child items sorted by their angle. The angles increase clockwise.
+    const children = [...(this.centerItem.children as RenderedChildMenuItem[])].sort(
+      (a, b) => a.renderData.computedAngle - b.renderData.computedAngle
+    );
+
+    if (children.length === 0) {
+      return;
+    }
+
+    // If no child item is hovered yet, we start at the first item (or at the last one if
+    // we step backwards).
+    let index = children.indexOf(this.hoveredItem as RenderedChildMenuItem);
+
+    if (index === -1) {
+      index = direction > 0 ? -1 : 0;
+    }
+
+    const next = children[(index + direction + children.length) % children.length];
+    this.hoverAngle(next.renderData.computedAngle);
   }
 
   /**

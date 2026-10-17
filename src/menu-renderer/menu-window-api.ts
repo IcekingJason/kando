@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 import { ipcRenderer, webFrame } from 'electron';
@@ -17,6 +18,7 @@ import {
   SelectionSource,
   MenuInteractionType,
   RootMenuItem,
+  DialEvent,
 } from '../common';
 
 /**
@@ -67,6 +69,17 @@ export const MENU_WINDOW_API = {
     ) => void
   ) => {
     ipcRenderer.on('menu-window.trigger-interaction', (event, type) => func(type));
+  },
+
+  /**
+   * This will be called by the host process when a wheel device such as the Surface Dial
+   * emits an event. These events are only received while the menu window is the active
+   * window.
+   *
+   * @param func This callback will be called for each event of the wheel device.
+   */
+  onDialEvent: (func: (event: DialEvent) => void) => {
+    ipcRenderer.on('menu-window.dial-event', (event, dialEvent) => func(dialEvent));
   },
 
   /**

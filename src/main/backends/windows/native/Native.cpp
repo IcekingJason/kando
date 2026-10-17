@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 #include "Native.hpp"
@@ -15,13 +16,30 @@
 
 #include <dwmapi.h>
 #include <propkey.h>
+#include <radialcontrollerinterop.h>
+#include <roapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <windows.foundation.collections.h>
+#include <windows.foundation.h>
 #include <windows.h>
+#include <windows.ui.input.h>
+#include <winstring.h>
+#include <wrl/client.h>
+#include <wrl/event.h>
+#include <wrl/wrappers/corewrappers.h>
 
+#include <atomic>
+#include <cstring>
+#include <memory>
 #include <sstream>
 #include <utility>
 #include <vector>
+
+using namespace ABI::Windows::UI::Input;
+using namespace ABI::Windows::Foundation;
+using namespace Microsoft::WRL;
+using namespace Microsoft::WRL::Wrappers;
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
@@ -214,7 +232,225 @@ BOOL CALLBACK enumerateWindowsForFocus(HWND hwnd, LPARAM lParam) {
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-Native::Native(Napi::Env env, Napi::Object exports) {
+// The following code is used to capture input from wheel devices such as the Surface
+// Dial. The RadialController APIs are WinRT APIs which can be used from desktop
+// applications via the interop interfaces declared in radialcontrollerinterop.h. The
+// controller is always bound to a specific window and will only receive input while this
+// window is the currently active window.
+
+struct Native::DialCapture {
+  /**
+   * This creates a RadialController for the given window and starts forwarding its events
+   * to the given JavaScript callback. If a capture is already active, it will be stopped
+   * first.
+   *
+   * @param hwnd The window handle to bind the capture to.
+   * @param degreesPerStep The minimum rotation in degrees required for a rotation event.
+   * @param useHaptics Whether the device should provide haptic feedback.
+   * @param env The environment of the calling JavaScript function.
+   * @param callback The JavaScript callback to call for each event.
+   * @returns True if the capture was started successfully, false otherwise.
+   */
+  bool start(HWND hwnd, double degreesPerStep, bool useHaptics, Napi::Env env,
+      Napi::Function callback) {
+    stop();
+
+    // Initialize the Windows Runtime. If the thread has already been initialized with a
+    // different apartment type, we can still continue - the RadialController is an agile
+    // object and can be used from an STA as well.
+    HRESULT hr = Windows::Foundation::Initialize(RO_INIT_MULTITHREADED);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+      return false;
+    }
+
+    hr = Windows::Foundation::GetActivationFactory(
+        HStringReference(RuntimeClass_Windows_UI_Input_RadialController).Get(),
+        &mControllerInterop);
+    if (FAILED(hr)) {
+      return false;
+    }
+
+    hr = mControllerInterop->CreateForWindow(hwnd, IID_PPV_ARGS(&mController));
+    if (FAILED(hr)) {
+      return false;
+    }
+
+    // Suppress the system's radial menu while Kando's menu is open. This way all wheel
+    // input is routed to our controller instead of showing the system menu.
+    hr = Windows::Foundation::GetActivationFactory(
+        HStringReference(RuntimeClass_Windows_UI_Input_RadialControllerConfiguration).Get(),
+        &mConfigurationInterop);
+    if (SUCCEEDED(hr)) {
+      hr = mConfigurationInterop->GetForWindow(hwnd, IID_PPV_ARGS(&mConfiguration));
+      if (SUCCEEDED(hr)) {
+        // The possibility to suppress the menu was added in Windows 10 1703. On older
+        // systems the system's radial menu will show up when the device is used.
+        if (SUCCEEDED(
+                mConfiguration.As<IRadialControllerConfiguration2>(&mConfiguration2))) {
+          mConfiguration2->put_IsMenuSuppressed(TRUE);
+          mConfiguration2->put_ActiveControllerWhenMenuIsSuppressed(mController.Get());
+        }
+      }
+    }
+
+    // The rotation resolution defines the minimum rotation required for a RotationChanged
+    // event. This way we get discrete steps which feel like the menu items snapping.
+    mController->put_RotationResolutionInDegrees(degreesPerStep);
+    mController->put_UseAutomaticHapticFeedback(useHaptics ? TRUE : FALSE);
+
+    mCallback = Napi::ThreadSafeFunction::New(env, callback, "Kando Dial Events", 0, 1);
+
+    hr = mController->add_RotationChanged(
+        Callback<ITypedEventHandler<RadialController*,
+            RadialControllerRotationChangedEventArgs*>>(this,
+            &Native::DialCapture::onRotationChanged)
+            .Get(),
+        &mRotationChangedToken);
+    if (FAILED(hr)) {
+      stop();
+      return false;
+    }
+
+    // The ButtonPressed, ButtonHolding and ButtonReleased events were added in Windows 10
+    // 1703. On older systems they are not available - in this case we simply do not
+    // receive any click events.
+    if (SUCCEEDED(mController.As<IRadialController2>(&mController2))) {
+      mController2->add_ButtonPressed(
+          Callback<ITypedEventHandler<RadialController*,
+              RadialControllerButtonPressedEventArgs*>>(this,
+              &Native::DialCapture::onButtonPressed)
+              .Get(),
+          &mButtonPressedToken);
+      mController2->add_ButtonHolding(
+          Callback<ITypedEventHandler<RadialController*,
+              RadialControllerButtonHoldingEventArgs*>>(this,
+              &Native::DialCapture::onButtonHolding)
+              .Get(),
+          &mButtonHoldingToken);
+      mController2->add_ButtonReleased(
+          Callback<ITypedEventHandler<RadialController*,
+              RadialControllerButtonReleasedEventArgs*>>(this,
+              &Native::DialCapture::onButtonReleased)
+              .Get(),
+          &mButtonReleasedToken);
+    }
+
+    mActive = true;
+    return true;
+  }
+
+  /** Stops the capture and restores the default behavior of the wheel device. */
+  void stop() {
+    if (mActive.exchange(false) && mController) {
+      mController->remove_RotationChanged(mRotationChangedToken);
+
+      if (mController2) {
+        mController2->remove_ButtonPressed(mButtonPressedToken);
+        mController2->remove_ButtonHolding(mButtonHoldingToken);
+        mController2->remove_ButtonReleased(mButtonReleasedToken);
+      }
+    }
+
+    if (mConfiguration2) {
+      mConfiguration2->put_IsMenuSuppressed(FALSE);
+    }
+
+    if (mCallback) {
+      mCallback.Release();
+    }
+
+    mConfiguration2.Reset();
+    mConfiguration.Reset();
+    mController2.Reset();
+    mController.Reset();
+  }
+
+  /**
+   * This sends the given event to the JavaScript callback.
+   *
+   * @param type The type of the event.
+   * @param delta The rotation delta in degrees. Only used for rotation events.
+   */
+  void send(const std::string& type, double delta = 0) {
+    if (!mActive) {
+      return;
+    }
+
+    mCallback.NonBlockingCall([type, delta](Napi::Env env, Napi::Function callback) {
+      Napi::Object event = Napi::Object::New(env);
+      event.Set("type", type);
+
+      if (type == "rotate") {
+        event.Set("deltaDegrees", delta);
+      }
+
+      callback.Call({event});
+    });
+  }
+
+  /**
+   * This is called when the wheel device is rotated. It forwards the rotation delta to
+   * the JavaScript callback.
+   */
+  HRESULT onRotationChanged(
+      IRadialController* /*sender*/, IRadialControllerRotationChangedEventArgs* args) {
+    double delta = 0;
+    args->get_RotationDeltaInDegrees(&delta);
+    send("rotate", delta);
+    return S_OK;
+  }
+
+  /** This is called when the wheel device is pressed. */
+  HRESULT onButtonPressed(
+      IRadialController* /*sender*/, IRadialControllerButtonPressedEventArgs* /*args*/) {
+    send("press");
+    return S_OK;
+  }
+
+  /** This is called when the wheel device is pressed and held down. */
+  HRESULT onButtonHolding(
+      IRadialController* /*sender*/, IRadialControllerButtonHoldingEventArgs* /*args*/) {
+    send("hold");
+    return S_OK;
+  }
+
+  /** This is called when the wheel device is released. */
+  HRESULT onButtonReleased(
+      IRadialController* /*sender*/, IRadialControllerButtonReleasedEventArgs* /*args*/) {
+    send("release");
+    return S_OK;
+  }
+
+  /** This is used to keep track of whether the capture is currently active. */
+  std::atomic<bool> mActive{false};
+
+  /** This is the callback which is called for each event. */
+  Napi::ThreadSafeFunction mCallback;
+
+  /** The interop interfaces used to create the RadialController. */
+  ComPtr<IRadialControllerInterop> mControllerInterop;
+  ComPtr<IRadialControllerConfigurationInterop> mConfigurationInterop;
+
+  /** The RadialController bound to the menu window and its configuration. */
+  ComPtr<IRadialController> mController;
+  ComPtr<IRadialControllerConfiguration> mConfiguration;
+
+  /**
+   * These interfaces are used to access the features which were added in Windows 10 1703.
+   */
+  ComPtr<IRadialController2> mController2;
+  ComPtr<IRadialControllerConfiguration2> mConfiguration2;
+
+  /** The event registration tokens used to remove the event handlers again. */
+  EventRegistrationToken mRotationChangedToken{};
+  EventRegistrationToken mButtonPressedToken{};
+  EventRegistrationToken mButtonHoldingToken{};
+  EventRegistrationToken mButtonReleasedToken{};
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+Native::Native(Napi::Env env, Napi::Object exports) : mDialCapture(new DialCapture()) {
   DefineAddon(exports,
       {
           InstanceMethod("movePointer", &Native::movePointer),
@@ -224,8 +460,14 @@ Native::Native(Napi::Env env, Napi::Object exports) {
           InstanceMethod("focusWindow", &Native::focusWindow),
           InstanceMethod("fixAcrylicEffect", &Native::fixAcrylicEffect),
           InstanceMethod("listInstalledApplications", &Native::listInstalledApplications),
+          InstanceMethod("startDialCapture", &Native::startDialCapture),
+          InstanceMethod("stopDialCapture", &Native::stopDialCapture),
       });
 }
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+Native::~Native() = default;
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
@@ -445,6 +687,41 @@ Napi::Value Native::listInstalledApplications(const Napi::CallbackInfo& info) {
   pAppsFolder->Release();
 
   return result;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+Napi::Value Native::startDialCapture(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() < 4 || !info[0].IsBuffer() || !info[1].IsNumber() ||
+      !info[2].IsBoolean() || !info[3].IsFunction()) {
+    Napi::TypeError::New(env, "Buffer, Number, Boolean and Function expected")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  // The buffer contains the native window handle of the window to bind the capture to.
+  auto buffer = info[0].As<Napi::Buffer<char>>();
+  HWND hwnd   = nullptr;
+
+  if (buffer.Length() < sizeof(HWND)) {
+    Napi::TypeError::New(env, "Invalid window handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::memcpy(&hwnd, buffer.Data(), sizeof(HWND));
+
+  bool started = mDialCapture->start(hwnd, info[1].As<Napi::Number>().DoubleValue(),
+      info[2].As<Napi::Boolean>().Value(), env, info[3].As<Napi::Function>());
+
+  return Napi::Boolean::New(env, started);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+void Native::stopDialCapture(const Napi::CallbackInfo& info) {
+  mDialCapture->stop();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////

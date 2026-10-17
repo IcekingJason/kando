@@ -6,7 +6,10 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
+
+import { DialEvent } from '../../../../common';
 
 export type Native = {
   /**
@@ -64,6 +67,32 @@ export type Native = {
     name: string;
     base64Icon: string;
   }[];
+
+  /**
+   * This starts capturing input from a wheel device such as the Surface Dial. The events
+   * are forwarded to the given callback. The capture is bound to the given window, so
+   * events are only received while this window is the currently active window. See also
+   * stopDialCapture().
+   *
+   * @param hwnd A buffer containing the native window handle of the window to bind the
+   *   capture to.
+   * @param degreesPerStep The minimum rotation in degrees required for a rotation event.
+   * @param useHaptics Whether the device should provide haptic feedback.
+   * @param callback The callback which is called for each event of the wheel device.
+   * @returns True if the capture was started successfully.
+   */
+  startDialCapture(
+    hwnd: Buffer,
+    degreesPerStep: number,
+    useHaptics: boolean,
+    callback: (event: DialEvent) => void
+  ): boolean;
+
+  /**
+   * This stops the capture which was started by startDialCapture() and restores the
+   * default behavior of the wheel device.
+   */
+  stopDialCapture(): void;
 };
 
 const native: Native = require('./../../../../../build/Release/NativeWin32.node');

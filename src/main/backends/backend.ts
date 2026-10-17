@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 import { EventEmitter } from 'events';
@@ -20,6 +21,7 @@ import {
   MenuItem,
   AppDescription,
   WindowDescription,
+  DialEvent,
   GeneralSettings,
 } from '../../common';
 import { Settings } from '../settings';
@@ -135,6 +137,43 @@ export abstract class Backend extends EventEmitter {
     // derived backends if they support detecting changes to system icons.
     return false;
   }
+
+  /**
+   * Some backends may support capturing input from wheel devices such as the Surface
+   * Dial. The implementation in this base class does nothing, but derived backends can
+   * override this method if they support wheel devices.
+   *
+   * The capture is bound to the given window, so events are only received while this
+   * window is the currently active window.
+   *
+   * @param hwnd A buffer containing the native window handle of the window to bind the
+   *   capture to.
+   * @param degreesPerStep The minimum rotation in degrees required for a rotation event.
+   * @param useHaptics Whether the device should provide haptic feedback.
+   * @param callback The callback which is called for each event of the wheel device.
+   * @returns A promise which resolves to true if the capture was started successfully.
+   */
+  public async startDialCapture(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    hwnd: Buffer,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    degreesPerStep: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    useHaptics: boolean,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    callback: (event: DialEvent) => void
+  ): Promise<boolean> {
+    return false;
+  }
+
+  /**
+   * Some backends may support capturing input from wheel devices such as the Surface
+   * Dial. The implementation in this base class does nothing, but derived backends can
+   * override this method if they support wheel devices.
+   *
+   * @returns A promise which resolves when the capture has been stopped.
+   */
+  public async stopDialCapture(): Promise<void> {}
 
   /**
    * Each backend can provide custom item-creators for dropped files. The implementation

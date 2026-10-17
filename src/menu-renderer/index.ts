@@ -134,6 +134,9 @@ Promise.all([
     menu.triggerInteraction(type);
   });
 
+  // Tell the menu about events of wheel devices such as the Surface Dial.
+  window.menuAPI.onDialEvent((event) => menu.onDialEvent(event));
+
   // Tell the host process about interactions triggered by the user or also by the host
   // process itself via the onTriggerInteraction function.
   menu.on('interaction', (type, path, time, source) => {

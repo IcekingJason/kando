@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 export * from './settings-schemata';
@@ -59,6 +60,19 @@ export type Vec2 = {
   x: number;
   y: number;
 };
+
+/**
+ * This type describes an event of a wheel device such as the Surface Dial. Rotating the
+ * device results in 'rotate' events, pressing it in 'press' events, pressing and holding
+ * it in 'hold' events and releasing it in 'release' events.
+ */
+export type DialEvent =
+  | { type: 'rotate'; deltaDegrees: number }
+  | { type: 'press' }
+  | {
+      type: 'hold';
+    }
+  | { type: 'release' };
 
 /** This type describes some information about the currently used backend. */
 export type BackendInfo = {
@@ -624,7 +638,7 @@ export type LevelProgress = {
 /**
  * For achievement tracking, it is important to know the source of a selection. This enum
  * is used to indicate whether a selection was made using the mouse, a gesture (marking
- * mode or turbo mode) or a gamepad.
+ * mode or turbo mode), a gamepad or a wheel device such as the Surface Dial.
  */
 export enum SelectionSource {
   eUnknown = 'unknown',
@@ -632,4 +646,5 @@ export enum SelectionSource {
   eKeyboard = 'keyboard',
   eGesture = 'gesture',
   eGamepad = 'gamepad',
+  eDial = 'dial',
 }

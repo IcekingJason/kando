@@ -6,6 +6,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+// SPDX-FileCopyrightText: Jason Ice <IcekingJason@outlook.com>
 // SPDX-License-Identifier: MIT
 
 import os from 'node:os';
@@ -20,6 +21,7 @@ import {
   AppDescription,
   ActionTypeRegistry,
   WindowDescription,
+  DialEvent,
 } from '../../../common';
 import { mapKeys } from '../../../common/key-codes';
 
@@ -149,6 +151,37 @@ export class WindowsBackend extends Backend {
    */
   public override async systemIconsChanged(): Promise<boolean> {
     return false;
+  }
+
+  /**
+   * This uses the RadialController Windows Runtime API to capture input from wheel
+   * devices such as the Surface Dial. The capture is bound to the given window, so events
+   * are only received while this window is the currently active window.
+   *
+   * @param hwnd A buffer containing the native window handle of the window to bind the
+   *   capture to.
+   * @param degreesPerStep The minimum rotation in degrees required for a rotation event.
+   * @param useHaptics Whether the device should provide haptic feedback.
+   * @param callback The callback which is called for each event of the wheel device.
+   * @returns A promise which resolves to true if the capture was started successfully.
+   */
+  public override async startDialCapture(
+    hwnd: Buffer,
+    degreesPerStep: number,
+    useHaptics: boolean,
+    callback: (event: DialEvent) => void
+  ): Promise<boolean> {
+    return native.startDialCapture(hwnd, degreesPerStep, useHaptics, callback);
+  }
+
+  /**
+   * This stops the capture which was started by startDialCapture() and restores the
+   * default behavior of the wheel device.
+   *
+   * @returns A promise which resolves when the capture has been stopped.
+   */
+  public override async stopDialCapture(): Promise<void> {
+    native.stopDialCapture();
   }
 
   /**
