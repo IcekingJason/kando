@@ -34,6 +34,7 @@ The [Unreleased] section contains changes which are not released yet. If you wan
 - Fixed a regression on KDE Wayland 6.3 which would cause the shortcut settings of System Settings to open every time Kando was started. Thanks to [@Tailszefox](https://github.com/Tailszefox) for the fix!
 - <kbd>CMD</kbd>+<kbd>A</kbd> can now be used to select text in input fields on macOS.
 - Fixed an issue on KDE where the Flatpak version of Kando would not connect to the KWin integration plugin.
+- Fixed several issues related the "Pointer fallback position" on wlroots-based compositors like Niri. Thanks to [@presianbg](https://github.com/presianbg) for the fix!
 
 ## [Kando 3.0.0](https://github.com/kando-menu/kando/releases/tag/v3.0.0)
 
