@@ -291,19 +291,26 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
   /**
    * This will be called when a wheel device such as the Surface Dial emits an event.
    * Rotating the device will hover the next or previous menu item, pressing the device
-   * will select the hovered item and pressing and holding the device will select the
-   * parent item.
+   * will select the hovered item, and pressing and holding the device will move the hover
+   * back to the center of the menu (or select the parent item if the center is already
+   * hovered).
    *
    * @param event The event to handle.
    */
   public onDialEvent(event: DialEvent) {
-    if (this.container.classList.contains('hidden') || !this.centerItem) {
+    if (
+      !this.settings.enableDial ||
+      this.settings.keepInputFocus ||
+      this.container.classList.contains('hidden') ||
+      !this.centerItem
+    ) {
       return;
     }
 
     // When the menu is operated with a wheel device such as the Surface Dial, we switch
-    // it to a fixed position at the center of the screen.
-    if (!this.dialModeActive) {
+    // it to a fixed position at the center of the screen. This can be disabled in the
+    // settings.
+    if (!this.dialModeActive && this.settings.dialCentersMenu) {
       this.activateDialMode();
     }
 
@@ -314,12 +321,18 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
       this.latestInput.button = ButtonState.eClicked;
       this.redraw();
     } else if (event.type === 'hold') {
-      // A long press selects the parent item. If we are already at the root item, this
-      // closes the menu. Note that the ButtonHolding event may be emitted multiple times
-      // while the device is held down.
+      // A long press first moves the hover back to the center of the menu. If the center
+      // is already hovered, it selects the parent item or closes the menu at the root
+      // item. Note that the ButtonHolding event may be emitted multiple times while the
+      // device is held down.
       if (!this.dialHoldTriggered) {
         this.dialHoldTriggered = true;
-        this.selectParent();
+
+        if (this.hoveredItem && this.hoveredItem !== this.centerItem) {
+          this.hoverCenter();
+        } else {
+          this.selectParent();
+        }
       }
     } else if (event.type === 'release') {
       if (this.dialHoldTriggered) {
@@ -785,18 +798,8 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
       this.pointerInput.setCurrentCenter(clampedPosition, this.settings.centerDeadZone);
       this.gamepadInput.setCurrentCenter(clampedPosition);
 
-      // Assemble a list of angles for the selection-wedge separators.
-      const separators = item.children.map((child) => {
-        return (child as RenderedChildMenuItem).renderData.wedge.start;
-      });
-
-      if (item.type !== 'root' && item.renderData.parentWedge) {
-        separators.push(item.renderData.parentWedge.start);
-      }
-
-      this.selectionWedges?.setCenter(clampedPosition);
+      this.updateSelectionWedges(clampedPosition);
       this.selectionWedges?.unhover();
-      this.wedgeSeparators?.setSeparators(separators, clampedPosition);
     }
 
     // Finally update the CSS classes of all DOM nodes according to the new selection chain
@@ -898,6 +901,21 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
   }
 
   /**
+   * Helper method to move hover focus to the center of the current menu. We do this by
+   * simulating a pointer input at the center of the menu.
+   */
+  private hoverCenter() {
+    this.latestInput = {
+      ...this.latestInput,
+      absolutePosition: this.getCenterItemPosition(),
+      relativePosition: { x: 0, y: 0 },
+      distance: 0,
+    };
+
+    this.redraw();
+  }
+
+  /**
    * This selects the currently hovered item. Depending on the type of the hovered item,
    * this will either select the item, open a submenu or select the parent item.
    *
@@ -931,6 +949,31 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
   }
 
   /**
+   * This updates the position of the selection wedges and the wedge separators. They are
+   * always drawn around the center of the currently active menu, so this method has to be
+   * called whenever this center has moved.
+   *
+   * @param centerPosition The new position of the center of the menu in pixels.
+   */
+  private updateSelectionWedges(centerPosition: Vec2) {
+    if (this.centerItem.type !== 'submenu' && this.centerItem.type !== 'root') {
+      return;
+    }
+
+    // Assemble a list of angles for the selection-wedge separators.
+    const separators = (this.centerItem.children as RenderedChildMenuItem[]).map(
+      (child) => child.renderData.wedge.start
+    );
+
+    if (this.centerItem.type !== 'root' && this.centerItem.renderData.parentWedge) {
+      separators.push(this.centerItem.renderData.parentWedge.start);
+    }
+
+    this.selectionWedges?.setCenter(centerPosition);
+    this.wedgeSeparators?.setSeparators(separators, centerPosition);
+  }
+
+  /**
    * This switches the menu to a fixed position at the center of the screen and enables
    * the anchored mode. This is used when the menu is operated with a wheel device such as
    * the Surface Dial because such devices cannot move the mouse pointer.
@@ -952,6 +995,10 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
     );
     this.root.renderData.position = math.add(this.root.renderData.position, offset);
 
+    // The selection wedges and the wedge separators are also drawn relative to the center
+    // of the menu, so we have to move them as well.
+    this.updateSelectionWedges(this.getCenterItemPosition());
+
     // The latest input state is still relative to the previous position of the menu. We
     // re-anchor it to the new position so that the hovered item stays hovered.
     if (this.hoveredItem && this.hoveredItem !== this.centerItem) {
@@ -962,14 +1009,7 @@ export class Menu extends (EventEmitter as new () => TypedEventEmitter<MenuEvent
 
       this.hoverAngle(angle);
     } else {
-      this.latestInput = {
-        ...this.latestInput,
-        absolutePosition: this.getCenterItemPosition(),
-        relativePosition: { x: 0, y: 0 },
-        distance: 0,
-      };
-
-      this.redraw();
+      this.hoverCenter();
     }
   }
 

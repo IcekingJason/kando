@@ -394,10 +394,12 @@ export class MenuWindow extends BrowserWindow {
 
     super.show();
 
-    // If the window is focusable, we can capture input from wheel devices such as the
-    // Surface Dial while the menu is open. The capture is bound to this window, so events
-    // are only received while the menu window is the active window.
-    if (this.isFocusable()) {
+    // If the window is focusable and wheel device support is enabled, we can capture
+    // input from wheel devices such as the Surface Dial while the menu is open. The
+    // capture is bound to this window, so events are only received while the menu window
+    // is the active window. Note that the window is not focusable if the 'keepInputFocus'
+    // setting is enabled - in this case wheel devices are disabled.
+    if (this.isFocusable() && this.kando.getGeneralSettings().get('enableDial')) {
       this.startDialCapture();
     }
 

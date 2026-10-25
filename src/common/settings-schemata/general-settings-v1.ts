@@ -226,6 +226,19 @@ export const GENERAL_SETTINGS_SCHEMA_V1 = z.object({
   enableGamepad: z.boolean().default(true),
 
   /**
+   * If disabled, input from wheel devices such as the Surface Dial will be ignored. This
+   * can be useful if the wheel device is not connected or if the user prefers to use the
+   * mouse.
+   */
+  enableDial: z.boolean().default(true),
+
+  /**
+   * If enabled, the menu will be moved to the center of the screen when it is operated
+   * with a wheel device such as the Surface Dial.
+   */
+  dialCentersMenu: z.boolean().default(false),
+
+  /**
    * This button will select the parent item when using a gamepad. Set to -1 to disable.
    * See https://w3c.github.io/gamepad/#remapping for the mapping of numbers to buttons.
    */

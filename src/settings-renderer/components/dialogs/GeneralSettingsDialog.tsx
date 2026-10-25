@@ -46,6 +46,7 @@ export default function GeneralSettingsDialog() {
   const setSettingsDialogVisible = useAppState((state) => state.setSettingsDialogVisible);
   const soundThemes = useAppState((state) => state.soundThemes);
   const [keepInputFocus] = useGeneralSetting('keepInputFocus');
+  const [enableDial] = useGeneralSetting('enableDial');
   const [triggerCenterClickOnKeyRelease] = useGeneralSetting(
     'triggerCenterClickOnKeyRelease'
   );
@@ -385,13 +386,51 @@ export default function GeneralSettingsDialog() {
             settingsKey="enableGamepad"
           />
           {backend.name === 'Windows' && (
-            <SettingsCheckbox
-              info={i18next.t(
-                'settings.general-settings-dialog.windows-ink-workaround-info'
-              )}
-              label={i18next.t('settings.general-settings-dialog.windows-ink-workaround')}
-              settingsKey="windowsInkWorkaround"
-            />
+            <>
+              <SettingsCheckbox
+                warning={
+                  keepInputFocus
+                    ? i18next.t(
+                        'settings.general-settings-dialog.enable-turbo-mode-warning'
+                      )
+                    : undefined
+                }
+                info={i18next.t(
+                  'settings.general-settings-dialog.enable-wheel-device-support-info'
+                )}
+                isDisabled={keepInputFocus}
+                label={i18next.t(
+                  'settings.general-settings-dialog.enable-wheel-device-support'
+                )}
+                settingsKey="enableDial"
+              />
+              <SettingsCheckbox
+                warning={
+                  keepInputFocus
+                    ? i18next.t(
+                        'settings.general-settings-dialog.enable-turbo-mode-warning'
+                      )
+                    : undefined
+                }
+                info={i18next.t(
+                  'settings.general-settings-dialog.center-menu-when-using-wheel-device-info'
+                )}
+                isDisabled={!enableDial || keepInputFocus}
+                label={i18next.t(
+                  'settings.general-settings-dialog.center-menu-when-using-wheel-device'
+                )}
+                settingsKey="dialCentersMenu"
+              />
+              <SettingsCheckbox
+                info={i18next.t(
+                  'settings.general-settings-dialog.windows-ink-workaround-info'
+                )}
+                label={i18next.t(
+                  'settings.general-settings-dialog.windows-ink-workaround'
+                )}
+                settingsKey="windowsInkWorkaround"
+              />
+            </>
           )}
           <h1>{i18next.t('settings.general-settings-dialog.interaction-modes')}</h1>
           <SettingsCheckbox

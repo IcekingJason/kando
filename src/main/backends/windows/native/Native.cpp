@@ -32,6 +32,7 @@
 #include <atomic>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -298,7 +299,11 @@ struct Native::DialCapture {
     mController->put_RotationResolutionInDegrees(degreesPerStep);
     mController->put_UseAutomaticHapticFeedback(useHaptics ? TRUE : FALSE);
 
-    mCallback = Napi::ThreadSafeFunction::New(env, callback, "Kando Dial Events", 0, 1);
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      mCallback =
+          Napi::ThreadSafeFunction::New(env, callback, "Kando Dial Events", 0, 1);
+    }
 
     hr = mController->add_RotationChanged(
         Callback<ITypedEventHandler<RadialController*,
@@ -355,8 +360,17 @@ struct Native::DialCapture {
       mConfiguration2->put_IsMenuSuppressed(FALSE);
     }
 
-    if (mCallback) {
-      mCallback.Release();
+    {
+      // Release() does not invalidate the handle. Hence we reset it here, else a
+      // subsequent call to stop() would release the already destroyed thread-safe
+      // function again and crash the process. This happens regularly, as start()
+      // calls stop() whenever the menu window is shown again.
+      std::lock_guard<std::mutex> lock(mMutex);
+      auto callback = mCallback;
+      mCallback     = Napi::ThreadSafeFunction();
+      if (callback) {
+        callback.Release();
+      }
     }
 
     mConfiguration2.Reset();
@@ -372,7 +386,11 @@ struct Native::DialCapture {
    * @param delta The rotation delta in degrees. Only used for rotation events.
    */
   void send(const std::string& type, double delta = 0) {
-    if (!mActive) {
+    // We have to make sure that the callback is not released while we are using it.
+    // This can happen if stop() is called while an event is being processed.
+    std::lock_guard<std::mutex> lock(mMutex);
+
+    if (!mActive || !mCallback) {
       return;
     }
 
@@ -426,6 +444,12 @@ struct Native::DialCapture {
 
   /** This is the callback which is called for each event. */
   Napi::ThreadSafeFunction mCallback;
+
+  /**
+   * This protects the callback as it is used from event handlers which may run on
+   * arbitrary threads.
+   */
+  std::mutex mMutex;
 
   /** The interop interfaces used to create the RadialController. */
   ComPtr<IRadialControllerInterop> mControllerInterop;

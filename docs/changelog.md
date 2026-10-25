@@ -24,7 +24,7 @@ The [Unreleased] section contains changes which are not released yet. If you wan
 
 ### :tada: Added
 
-- On Windows, wheel devices such as the Surface Dial can now be used to navigate the menu: the menu is then shown at the center of the screen in a fixed position, rotating the device hovers the next or previous item, pressing it selects the hovered item and pressing and holding it selects the parent item.
+- On Windows, wheel devices such as the Surface Dial can now be used to navigate the menu: rotating the device hovers the next or previous item, pressing it selects the hovered item and pressing and holding it moves the hover back to the center of the menu (a second long press selects the parent item). Optionally, the menu can be moved to the center of the screen in a fixed position while it is operated with a wheel device. Both the wheel device support and the automatic centering can be toggled in the general settings.
 
 ### :bug: Fixed
 

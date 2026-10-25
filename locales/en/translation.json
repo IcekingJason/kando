@@ -226,7 +226,11 @@
             "trigger-center-click-on-key-release-warning": "Depending on your center-click workflow, this may instantly close the menu when you release the shortcut. Activate this only if you know what you are doing!",
             "sound-theme-load-failed-warning": "Failed to load the following sound theme(s), most likely due to a version mismatch: {{themes}}",
             "hide-on-focus-out-info": "The menu will be hidden when you switch focus to another application.",
-            "hide-on-focus-out": "Hide menu when focus is lost"
+            "hide-on-focus-out": "Hide menu when focus is lost",
+            "enable-wheel-device-support-info": "If checked, you can use a wheel device such as the Surface Dial to control the menu.",
+            "enable-wheel-device-support": "Enable wheel device support",
+            "center-menu-when-using-wheel-device-info": "If checked, the menu will be moved to the center of the screen when it is operated with a wheel device such as the Surface Dial.",
+            "center-menu-when-using-wheel-device": "Center menu when using a wheel device"
         },
         "introduction-dialog": {
             "slide1-title": "Kando offers a unique and efficient way for interacting with your computer.",
